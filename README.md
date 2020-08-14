@@ -1,4 +1,4 @@
-# Practical-Machine-Learning---Course-Project
+# Practical Machine Learning Course Project
 
 This analysis meant to be the basis for the course quiz and a prediction assignment writeup. 
 The main goal of the project is to predict the manner in which 6 participants performed some 
