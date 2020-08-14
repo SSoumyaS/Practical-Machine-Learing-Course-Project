@@ -1,0 +1,206 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Soumya Satyakanta Sethi"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This analysis meant to be the basis for the course quiz and a prediction assignment writeup. The main goal of the project is to predict the manner in which 6 participants performed some exercise as described below. This is the “classe” variable in the training set. The machine learning algorithm described here is applied to the 20 test cases available in the test data for prediction.
+
+## Dataset Overview
+The data for this project come from http://groupware.les.inf.puc-rio.br/har. A short description of the datasets content from the authors’ website:
+
+“Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+(Full reference to the data is given at the end of the document)
+
+```{r include=FALSE}
+rm(list=ls())
+setwd("F:/Coursera_Projects/Practical_ML")
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+
+```
+
+## Load & Read the Data
+```{r}
+training <- read.csv('./pml-training.csv', header=T)
+testing <- read.csv('./pml-testing.csv', header=T)
+```
+
+```{r}
+dim(training)
+```
+
+```{r}
+dim(testing)
+```
+
+The training and testing data set contains 19622 and 20 observations respectively with 160 variables each. The "classe" variable (with 5 unique outcomes i.e. "A" "B" "C" "D" and "E") in the training set is the outcome to predict.
+
+## Clean the data
+
+In this step, we will clean the data and get rid of observations with missing values as well as some meaningless variables.
+
+```{r, cache = T}
+sum(complete.cases(training))
+```
+First, we remove columns that contain NA missing values.
+
+```{r, cache = T}
+training <- training[, colSums(is.na(training)) == 0] 
+testing <- testing[, colSums(is.na(testing)) == 0] 
+```  
+
+Next, we get rid of some columns that do not contribute much to the accelerometer measurements.
+
+```{r, cache = T}
+
+classe <- training$classe
+trainRemove <- grepl("^X|timestamp|window", names(training))
+training <- training[, !trainRemove]
+trainCleaned <- training[, sapply(training, is.numeric)]
+trainCleaned$classe <- classe
+
+testRemove <- grepl("^X|timestamp|window", names(testing))
+testing <- testing[, !testRemove]
+testCleaned <- testing[, sapply(testing, is.numeric)]
+```
+
+Now, the cleaned training data set contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables.
+
+## Slice the data
+Then, we can split the cleaned training set into a pure training data set (70%) and a validation data set (30%). We will use the validation data set to conduct cross validation in future steps.
+
+```{r, cache = T}
+set.seed(22519) # For reproducibile purpose
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+## Data Modeling
+Here we develop the predictive model using three different algorithm as shown below.
+
+### Method 1 : Random Forest
+We fit a predictive model for activity recognition using Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general. We will use **5-fold cross validation** when applying the algorithm.
+
+```{r, cache = T}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+Then, we estimate the performance of the model on the validation data set.
+
+```{r, cache = T}
+predictRf <- predict(modelRf, testData)
+confMatRF <- confusionMatrix(factor(testData$classe), factor(predictRf))
+confMatRF
+```
+
+```{r}
+plot(confMatRF$table, col = confMatRF$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(confMatRF$overall['Accuracy'], 4)))
+```
+```{r, cache = T}
+errv <- 1 - as.numeric(confMatRF$overall[1])
+errv
+```
+
+So, the estimated accuracy of the model is 99.37% and the estimated out-of-sample error is 0.62%.
+
+### Method 2 : Decision Tree
+Next we apply the decision tree algorithm.
+
+```{r}
+set.seed(22519)
+modelDT <- rpart(classe ~ ., data=trainData, method="class")
+```
+
+```{r, fig.height = 7, fig.width = 9, fig.align = "center"}
+fancyRpartPlot(modelDT)
+```
+
+
+We then validate the model on the testData to find out how well it performs by looking at the accuracy variable.
+
+```{r}
+predictDT <- predict(modelDT, newdata=testData, type="class")
+confMatDT <- confusionMatrix(factor(predictDT), factor(testData$classe))
+confMatDT
+```
+```{r}
+plot(confMatDT$table, col = confMatDT$byClass, 
+     main = paste("Decision Tree - Accuracy =",
+                  round(confMatDT$overall['Accuracy'], 4)))
+```
+
+### Method 3: Generalized Boosted Model
+
+```{r}
+set.seed(22519)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, 
+                           repeats = 1)
+modelGBM  <- train(classe ~ ., data=trainData, method = "gbm",
+                   trControl = controlGBM, verbose = FALSE)
+modelGBM$finalModel
+```
+```{r}
+predictGBM <- predict(modelGBM, newdata=testData)
+confMatGBM <- confusionMatrix(factor(predictGBM),
+                              factor(testData$classe))
+confMatGBM
+```
+```{r}
+plot(confMatGBM$table, col = confMatGBM$byClass,
+     main = paste("GBM - Accuracy =",
+                  round(confMatGBM$overall['Accuracy'], 4)))
+```
+
+## Predicting for Test Data Set
+
+We noticed that the accuracy level is highest in case of Random forest method i.e. around 99%. Hence,we apply the RF model to the original testing data set downloaded from the data source. We remove the `problem_id` column first.
+
+```{r cache=FALSE}
+result <- predict(modelRf,
+                  testCleaned[,-length(names(testCleaned))])
+result
+```  
+
+## Appendix: Figures
+1. Correlation Matrix Visualization  
+```{r, cache = T,, fig.height = 8, fig.width = 7, fig.align = "center"}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, order = "FPC", method = "color", type = "lower", tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+## Data Reference
+The data for this project come from\ http://groupware.les.inf.puc-rio.br/har. 
+
+Full source:\
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. “Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human ’13)”. Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
